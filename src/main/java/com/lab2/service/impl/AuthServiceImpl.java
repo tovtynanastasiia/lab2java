@@ -4,8 +4,10 @@ import com.lab2.dto.AuthResponse;
 import com.lab2.dto.LoginRequest;
 import com.lab2.dto.RegistrationRequest;
 import com.lab2.service.AuthService;
+import com.lab2.service.TokenService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -23,48 +25,70 @@ public class AuthServiceImpl implements AuthService {
     private static final Pattern PASSWORD_PATTERN = Pattern.compile("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$");
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+?[1-9]\\d{1,14}$");
+    
+    private final TokenService tokenService;
+
+    @Autowired
+    public AuthServiceImpl(TokenService tokenService) {
+        this.tokenService = tokenService;
+    }
 
     @Override
     public AuthResponse register(RegistrationRequest request) {
-        logger.info("Starting registration process for username: {}", request.getUsername());
+        logger.info("Початок процесу реєстрації для користувача: {}", request.getUsername());
         
         String validationError = validateRegistration(request);
         if (validationError != null) {
-            logger.warn("Registration validation failed: {}", validationError);
+            logger.warn("Помилка валідації при реєстрації: {}", validationError);
             return new AuthResponse(false, validationError, null);
         }
         
-        logger.info("Registration validation successful for username: {}", request.getUsername());
+        logger.info("Валідація реєстрації успішна для користувача: {}", request.getUsername());
+        
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("userId", 12345L);
+        metadata.put("registeredAt", LocalDate.now().toString());
+        if (request.getPhoneNumber() != null && !request.getPhoneNumber().trim().isEmpty()) {
+            metadata.put("phoneNumber", request.getPhoneNumber());
+        }
+        
+        String token = tokenService.generateToken(request.getUsername(), request.getEmail(), metadata);
         
         Map<String, Object> mockData = new HashMap<>();
         mockData.put("userId", 12345L);
         mockData.put("username", request.getUsername());
         mockData.put("email", request.getEmail());
         mockData.put("registeredAt", LocalDate.now().toString());
+        mockData.put("token", token);
         
-        logger.info("Registration completed successfully for username: {}", request.getUsername());
-        return new AuthResponse(true, "User registered successfully", mockData);
+        logger.info("Реєстрація успішно завершена для користувача: {}. Токен згенеровано", request.getUsername());
+        return new AuthResponse(true, "Користувача успішно зареєстровано", mockData);
     }
 
     @Override
     public AuthResponse login(LoginRequest request) {
-        logger.info("Starting login process for username: {}", request.getUsername());
+        logger.info("Початок процесу авторизації для користувача: {}", request.getUsername());
         
         String validationError = validateLogin(request);
         if (validationError != null) {
-            logger.warn("Login validation failed: {}", validationError);
+            logger.warn("Помилка валідації при авторизації: {}", validationError);
             return new AuthResponse(false, validationError, null);
         }
         
-        logger.info("Login validation successful for username: {}", request.getUsername());
+        logger.info("Валідація авторизації успішна для користувача: {}", request.getUsername());
+        
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("lastLogin", LocalDate.now().toString());
+        
+        String token = tokenService.generateToken(request.getUsername(), "user@example.com", metadata);
         
         Map<String, Object> mockData = new HashMap<>();
-        mockData.put("token", "mock-jwt-token-" + System.currentTimeMillis());
+        mockData.put("token", token);
         mockData.put("username", request.getUsername());
-        mockData.put("expiresIn", 3600);
+        mockData.put("expiresIn", 86400);
         
-        logger.info("Login completed successfully for username: {}", request.getUsername());
-        return new AuthResponse(true, "Login successful", mockData);
+        logger.info("Авторизація успішно завершена для користувача: {}. Токен згенеровано", request.getUsername());
+        return new AuthResponse(true, "Авторизація успішна", mockData);
     }
 
     private String validateRegistration(RegistrationRequest request) {

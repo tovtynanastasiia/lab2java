@@ -1,10 +1,13 @@
 package com.lab2.controller.impl;
 
+import com.lab2.annotation.RequiresToken;
 import com.lab2.controller.AuthController;
 import com.lab2.dto.AuthResponse;
 import com.lab2.dto.LoginRequest;
 import com.lab2.dto.RegistrationRequest;
 import com.lab2.service.AuthService;
+import com.lab2.service.TokenService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,10 +28,12 @@ public class AuthControllerImpl implements AuthController {
     private static final Logger logger = LoggerFactory.getLogger(AuthControllerImpl.class);
     
     private final AuthService authService;
+    private final TokenService tokenService;
 
     @Autowired
-    public AuthControllerImpl(AuthService authService) {
+    public AuthControllerImpl(AuthService authService, TokenService tokenService) {
         this.authService = authService;
+        this.tokenService = tokenService;
     }
 
     @GetMapping(value = {"", "/"})
@@ -78,25 +83,25 @@ public class AuthControllerImpl implements AuthController {
     @PostMapping("/register")
     @Override
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegistrationRequest request, BindingResult bindingResult) {
-        logger.info("Received registration request");
+        logger.info("Отримано запит на реєстрацію");
         
         if (bindingResult.hasErrors()) {
             String errors = bindingResult.getFieldErrors().stream()
                     .map(error -> error.getField() + ": " + error.getDefaultMessage())
                     .collect(Collectors.joining(", "));
-            logger.warn("Registration request validation errors: {}", errors);
+            logger.warn("Помилки валідації запиту на реєстрацію: {}", errors);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(new AuthResponse(false, "Validation failed: " + errors, null));
+                    .body(new AuthResponse(false, "Помилка валідації: " + errors, null));
         }
         
-        logger.info("Registration request passed initial validation, forwarding to service");
+        logger.info("Запит на реєстрацію пройшов початкову валідацію, передано в сервіс");
         AuthResponse response = authService.register(request);
         
         if (response.isSuccess()) {
-            logger.info("Registration successful");
+            logger.info("Реєстрація успішна");
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } else {
-            logger.warn("Registration failed: {}", response.getMessage());
+            logger.warn("Реєстрація не вдалася: {}", response.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
         }
     }
@@ -104,26 +109,83 @@ public class AuthControllerImpl implements AuthController {
     @PostMapping("/login")
     @Override
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request, BindingResult bindingResult) {
-        logger.info("Received login request for username: {}", request.getUsername());
+        logger.info("Отримано запит на авторизацію для користувача: {}", request.getUsername());
         
         if (bindingResult.hasErrors()) {
             String errors = bindingResult.getFieldErrors().stream()
                     .map(error -> error.getField() + ": " + error.getDefaultMessage())
                     .collect(Collectors.joining(", "));
-            logger.warn("Login request validation errors: {}", errors);
+            logger.warn("Помилки валідації запиту на авторизацію: {}", errors);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(new AuthResponse(false, "Validation failed: " + errors, null));
+                    .body(new AuthResponse(false, "Помилка валідації: " + errors, null));
         }
         
-        logger.info("Login request passed initial validation, forwarding to service");
+        logger.info("Запит на авторизацію пройшов початкову валідацію, передано в сервіс");
         AuthResponse response = authService.login(request);
         
         if (response.isSuccess()) {
-            logger.info("Login successful for username: {}", request.getUsername());
+            logger.info("Авторизація успішна для користувача: {}", request.getUsername());
             return ResponseEntity.ok(response);
         } else {
-            logger.warn("Login failed: {}", response.getMessage());
+            logger.warn("Авторизація не вдалася: {}", response.getMessage());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+        }
+    }
+
+    @PostMapping("/token/refresh")
+    @RequiresToken
+    public ResponseEntity<Map<String, Object>> refreshToken(HttpServletRequest request) {
+        logger.info("Отримано запит на оновлення токену");
+        
+        String authHeader = request.getHeader("Authorization");
+        String token = authHeader != null && authHeader.startsWith("Bearer ") 
+                ? authHeader.substring(7) 
+                : null;
+        
+        try {
+            String newToken = tokenService.refreshToken(token);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Токен успішно оновлено");
+            response.put("token", newToken);
+            
+            logger.info("Токен успішно оновлено");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Помилка при оновленні токену: {}", e.getMessage());
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "Помилка при оновленні токену: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        }
+    }
+
+    @PostMapping("/token/invalidate")
+    @RequiresToken
+    public ResponseEntity<Map<String, Object>> invalidateToken(HttpServletRequest request) {
+        logger.info("Отримано запит на інвалідацію токену");
+        
+        String authHeader = request.getHeader("Authorization");
+        String token = authHeader != null && authHeader.startsWith("Bearer ") 
+                ? authHeader.substring(7) 
+                : null;
+        
+        try {
+            tokenService.invalidateToken(token);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Токен успішно інвалідовано");
+            
+            logger.info("Токен успішно інвалідовано");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Помилка при інвалідації токену: {}", e.getMessage());
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "Помилка при інвалідації токену: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
         }
     }
 }
